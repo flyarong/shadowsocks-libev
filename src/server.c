@@ -744,12 +744,14 @@ server_recv_cb(EV_P_ ev_io *w, int revents)
         stop_server(EV_A_ server);
         return;
     } else if (err == CRYPTO_NEED_MORE) {
-        if (server->stage != STAGE_STREAM && server->frag > MAX_FRAG) {
-            report_addr(server->fd, "malicious fragmentation");
-            stop_server(EV_A_ server);
-            return;
+        if (server->stage != STAGE_STREAM) {
+            if (server->frag > MAX_FRAG) {
+                report_addr(server->fd, "malicious fragmentation");
+                stop_server(EV_A_ server);
+                return;
+            }
+            server->frag++;
         }
-        server->frag++;
         return;
     }
 
@@ -1390,16 +1392,11 @@ new_server(int fd, listen_ctx_t *listener)
     crypto->ctx_init(crypto->cipher, server->e_ctx, 1);
     crypto->ctx_init(crypto->cipher, server->d_ctx, 0);
 
-    int request_timeout = min(MAX_REQUEST_TIMEOUT, listener->timeout)
-                          + rand() % MAX_REQUEST_TIMEOUT;
-
-    int repeat_interval = max(MIN_TCP_IDLE_TIMEOUT, listener->timeout)
-                          + rand() % listener->timeout;
-
+    int timeout = max(MIN_TCP_IDLE_TIMEOUT, server->listen_ctx->timeout);
     ev_io_init(&server->recv_ctx->io, server_recv_cb, fd, EV_READ);
     ev_io_init(&server->send_ctx->io, server_send_cb, fd, EV_WRITE);
     ev_timer_init(&server->recv_ctx->watcher, server_timeout_cb,
-                  request_timeout, repeat_interval);
+                  timeout, timeout);
 
     cork_dllist_add(&connections, &server->entries);
 
